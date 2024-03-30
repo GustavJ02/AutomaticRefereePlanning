@@ -263,6 +263,8 @@ def main():
         'days': days,
         'games': games_dict,
         'referees': referee_dict,
+        'colleagues': colleagues,
+        'gamesInDay': gamesInDay,
         'unAllowedPairs': unAllowedPairs
     }
 
