@@ -76,7 +76,7 @@ def combine(refs_sol, result):
         if ref2 != '':
             result.at[index, 'Domare 2'] = ref2
 
-    # result = result.drop(['id', 'nrOfRefs', 'reqLevel'], axis=1, inplace=True)
+    result = result.drop(['id', 'nrOfRefs', 'reqLevel'], axis=1, inplace=True)
 
 
 def countAvalibleRefs(referee_dict, i):
@@ -329,8 +329,15 @@ def main():
     optimize(referee_dict, games_dict, unAllowedPairs, games, colleagues, gamesInDay, finalGames, gamesOnDayAndField)
 
     print(games)
+
+    games['date'] = pd.to_datetime(games['date']).dt.date
+
+    uniqeDates = games['date'].unique()
+
     with pd.ExcelWriter('result.xlsx', engine='xlsxwriter') as writer:
-        games.to_excel(writer, sheet_name='games', index=False)
+        for date in uniqeDates:
+            filtered_df = games[games['date'] == date]
+            filtered_df.to_excel(writer, sheet_name=str(date), index=False)
 
 
 if __name__ == "__main__":
