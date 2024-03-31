@@ -76,7 +76,7 @@ def combine(refs_sol, result):
         if ref2 != '':
             result.at[index, 'Domare 2'] = ref2
 
-    result = result.drop(['id', 'nrOfRefs', 'reqLevel'], axis=1, inplace=True)
+    # result = result.drop(['id', 'nrOfRefs', 'reqLevel'], axis=1, inplace=True)
 
 
 def countAvalibleRefs(referee_dict, i):
@@ -98,7 +98,7 @@ def calculateAvrage(referee_dict, gamesInDay):
     return result
 
 
-def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, gamesInDay):
+def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, gamesInDay, finalGames, gamesOnDayAndField):
 
     intendedAvrage = calculateAvrage(referee_dict, gamesInDay)
 
@@ -113,6 +113,20 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
     referees = list(referee_dict.keys())
     games = list(games_dict.keys())
     daysRange = range(len(gamesInDay))
+
+    notFinalGamesOnDayAndField = []
+
+    for t in daysRange:
+        tmpList1 = []
+        for field in range(len(gamesOnDayAndField[t])):
+            tmpList = []
+            for i in range(len(gamesOnDayAndField[t][field])):
+                if gamesOnDayAndField[t][field][i] not in finalGames:
+                    tmpList.append(gamesOnDayAndField[t][field][i])
+
+            tmpList1.append(tmpList)
+
+        notFinalGamesOnDayAndField.append(tmpList1)
 
     M = 1000
 
@@ -135,6 +149,8 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
     # ----------------------------------------------------------------
     # Constraints
     # ----------------------------------------------------------------
+
+    # Ensure that each game has the correct number of referees
     for g in games:
         mod.add_constraint(sum(officiates[ref, g] for ref in referees) == games_dict[g]["nrOfRefs"])
 
@@ -143,28 +159,48 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
             mod.add_constraint(referee_dict[ref]["Level"] - games_dict[g]["reqLevel"] * officiates[ref, g] >= 0)  # Ensure that each referee has the correct level for each level
             mod.add_constraint(officiates[ref, g] * (referee_dict[ref]["Level"] - games_dict[g]["reqLevel"]) <= 3)  # Ensure that each referee is not overqualified for the game they officiates
 
+    # Ensure that referees are not assigned two simultaions games and allow ample time between games on different fields
     for ref in referees:
         for g1, g2 in unAllowedPairs:
             mod.add_constraint(officiates[ref, g1] + officiates[ref, g2] <= 1)
 
-    for index, game in enumerate(games[:-4]):
-        for ref in referees:
-            mod.add_constraint(sum(officiates[ref, games[i]] for i in range(index, index + 4)) <= 4)
+    # Ensure that referees dont officiate more than 4 consecutive games
+    for t in daysRange:
+        for index in range(len(gamesInDay[t]) - 4):
+            for ref in referees:
+                mod.add_constraint(sum(officiates[ref, game] for game in gamesInDay[t][index:index + 5]) <= 4)
 
+    # Ensure that referees officiates a game with their collegue if they have one
     for g in games:
         for ref1, ref2 in colleagues:
             mod.add_constraint(officiates[ref1, g] - officiates[ref2, g] == 0)
 
+    # Calculate deviation from avrage for objective and dont assign referees games if they are not avalible
     for ref in referees:
         for t in daysRange:
             mod.add_constraint(sum(officiates[ref, g] for g in gamesInDay[t]) - intendedAvrage[t] == above_avg[ref, t] - below_avg[ref, t])
 
             mod.add_constraint(sum(officiates[ref, g] for g in gamesInDay[t]) <= M * referee_dict[ref]['available'][t])
 
+    # Ensure that referees are only assigned one final
+    for ref in referees:
+        mod.add_constraint(sum(officiates[ref, game] for game in finalGames) <= 1)  # Max one final per referee
+
+    # Makes sure the referees officiates at least two consecutive games
+    for t in daysRange:
+        for field in range(len(notFinalGamesOnDayAndField[t])):
+            for ref in referees:
+                mod.add_constraint(officiates[ref, notFinalGamesOnDayAndField[t][field][0]] == officiates[ref, notFinalGamesOnDayAndField[t][field][1]])
+                mod.add_constraint(officiates[ref, notFinalGamesOnDayAndField[t][field][-2]] == officiates[ref, notFinalGamesOnDayAndField[t][field][-1]])
+                for index in range(1, len(notFinalGamesOnDayAndField[t][field]) - 1):
+                    mod.add_constraint(sum(officiates[ref, game] for game in notFinalGamesOnDayAndField[t][field][index-1:index + 2])
+                                       >= 2 * officiates[ref, notFinalGamesOnDayAndField[t][field][index]])
+
     # ----------------------------------------------------------------
     # Solve the model
     # ----------------------------------------------------------------
-    # print(mod)
+    print(f'Number of constraints: {mod.number_of_constraints}')
+
     sol = mod.solve()
 
     # ----------------------------------------------------------------
@@ -207,16 +243,32 @@ def populateGamesInDay(games):
     return result
 
 
+def findFinals(games):
+    finals = []
+    for index, row in games.iterrows():
+        if row['Runda'] == 'Final':
+            finals.append(row['id'])
+
+    return finals
+
+
+def findGamesOnDayAndField(games):
+    result = []
+
+    for day in games:
+        groupedDf = day.groupby('Spelplan')['id'].apply(list).reset_index()
+        thisList = groupedDf['id'].tolist()
+        result.append(thisList)
+
+    return result
+
+
 def main():
     games, referees, groups = read_data()
 
     colleagues = extractColleagues(referees)
 
     days = len(games)
-
-    # print(referees)
-    # print(colleagues)
-    # print(groups)
 
     [generateID(day) for day in games]
 
@@ -226,14 +278,15 @@ def main():
 
     [generateUnAllowedPairs(day, unAllowedPairs) for day in games]
 
-    unAllowedPairs = list(set(tuple(sorted(pair)) for pair in unAllowedPairs))
+    gamesOnDayAndField = findGamesOnDayAndField(games)
 
-    # [print(day) for day in games]
+    unAllowedPairs = list(set(tuple(sorted(pair)) for pair in unAllowedPairs))
 
     gamesInDay = populateGamesInDay(games)
 
     games = pd.concat(games, ignore_index=True)
-    # print(games)
+
+    finalGames = findFinals(games)
 
     games_dict = {}
 
@@ -265,6 +318,7 @@ def main():
         'referees': referee_dict,
         'colleagues': colleagues,
         'gamesInDay': gamesInDay,
+        'finalGames': finalGames,
         'unAllowedPairs': unAllowedPairs
     }
 
@@ -272,7 +326,7 @@ def main():
         json.dump(json_data, json_file, indent=4)
 
     print(f'Number of unallowed pairs: {len(unAllowedPairs)}')
-    optimize(referee_dict, games_dict, unAllowedPairs, games, colleagues, gamesInDay)
+    optimize(referee_dict, games_dict, unAllowedPairs, games, colleagues, gamesInDay, finalGames, gamesOnDayAndField)
 
     print(games)
     with pd.ExcelWriter('result.xlsx', engine='xlsxwriter') as writer:
