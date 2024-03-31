@@ -4,6 +4,17 @@ import json
 import ast
 from docplex.mp.model import Model
 import tracemalloc
+import os
+
+
+class NoSoulutionFound(Exception):
+    ...
+    pass
+
+
+class ColleagueError(Exception):
+    ...
+    pass
 
 
 def read_data():
@@ -24,7 +35,7 @@ def read_data():
 
 def generateID(dataframe):
     ids = []
-    for i, date in enumerate(dataframe['date']):
+    for i, date in enumerate(dataframe['Date']):
         ids.append(f"{date.day}-{i}")
 
     dataframe['id'] = ids
@@ -34,7 +45,7 @@ def setRefProperties(dataframe, groups):
     nrs = []
     level = []
 
-    for group in dataframe['Grupp']:
+    for group in dataframe['Group']:
         if 'Pool' in group:
             nrs.append(1)
         else:
@@ -49,8 +60,8 @@ def setRefProperties(dataframe, groups):
 
 
 def generateUnAllowedPairs(dataframe, unAllowedPairs):
-    for time1, place1, id1 in zip(dataframe['Tid'], dataframe['Spelplan'], dataframe['id']):
-        for time2, place2, id2 in zip(dataframe['Tid'], dataframe['Spelplan'], dataframe['id']):
+    for time1, place1, id1 in zip(dataframe['Time'], dataframe['Field'], dataframe['id']):
+        for time2, place2, id2 in zip(dataframe['Time'], dataframe['Field'], dataframe['id']):
             if place1 != place2:
 
                 time1_dt = datetime.combine(datetime(1900, 1, 1).date(), time1)
@@ -73,9 +84,9 @@ def combine(refs_sol, result):
 
         # print(f'Key: {key}, Ref1: {ref1}, Ref2: {ref2}')
 
-        result.at[index, 'Domare 1'] = ref1
+        result.at[index, 'Referee 1'] = ref1
         if ref2 != '':
-            result.at[index, 'Domare 2'] = ref2
+            result.at[index, 'Referee 2'] = ref2
 
     result = result.drop(['id', 'nrOfRefs', 'reqLevel'], axis=1, inplace=True)
 
@@ -83,7 +94,7 @@ def combine(refs_sol, result):
 def countAvalibleRefs(referee_dict, i):
     sum = 0
     for referee in referee_dict.keys():
-        sum += referee_dict[referee]['available'][i]
+        sum += referee_dict[referee]['Available'][i]
 
     return sum
 
@@ -112,6 +123,11 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
     # ----------------------------------------------------------------
     # Model data
     # ----------------------------------------------------------------
+    print('Reading data')
+    print(f'Referees: {referee_dict}', end='\n\n')
+
+    print(f'Colleagues: {colleagues}', end='\n\n')
+
     referees = list(referee_dict.keys())
     games = list(games_dict.keys())
     daysRange = range(len(gamesInDay))
@@ -130,11 +146,12 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
 
         notFinalGamesOnDayAndField.append(tmpList1)
 
-    M = 1000
+    M = 10000
 
     # ----------------------------------------------------------------
     # Variables
     # ----------------------------------------------------------------
+    print('Creating variables')
     officiates = mod.binary_var_matrix(referees, games, name='officiates')
 
     # ----------------------------------------------------------------
@@ -147,11 +164,13 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
     # ----------------------------------------------------------------
     # Objective
     # ----------------------------------------------------------------
+    print('Buiding objective')
     mod.minimize(sum(above_avg[ref, t] + below_avg[ref, t] + 10 * officiatesLastAndFirst[ref, t] for ref in referees for t in daysRange))
 
     # ----------------------------------------------------------------
     # Constraints
     # ----------------------------------------------------------------
+    print('Building constraints')
 
     # Ensure that each game has the correct number of referees
     for g in games:
@@ -183,7 +202,7 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
         for t in daysRange:
             mod.add_constraint(sum(officiates[ref, g] for g in gamesInDay[t]) - intendedAvrage[t] == above_avg[ref, t] - below_avg[ref, t])
 
-            mod.add_constraint(sum(officiates[ref, g] for g in gamesInDay[t]) <= M * referee_dict[ref]['available'][t])
+            mod.add_constraint(sum(officiates[ref, g] for g in gamesInDay[t]) <= M * referee_dict[ref]['Available'][t])
 
     # Ensure that referees are only assigned one final
     for ref in referees:
@@ -262,15 +281,34 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
         combine(refs_sol, result)
     else:
         print("No solution found")
+        raise NoSoulutionFound
 
 
 def extractColleagues(referees):
     pairs = []
-    for ref1, ref2 in zip(referees['Referee'], referees['colleague']):
+    for ref1, ref2 in zip(referees['Referee'], referees['Colleague']):
         if not pd.isna(ref2):
             pairs.append([ref1, ref2])
 
-    return list(set(tuple(sorted(pair)) for pair in pairs))
+    referee_set = set()  # To store referees encountered
+    duplicates = set()   # To store referees appearing in multiple pairs
+
+    noDuplication = list(set(tuple(sorted(pair)) for pair in pairs))
+
+    for pair in noDuplication:
+        for referee in pair:
+            if referee in referee_set:
+                duplicates.add(referee)
+            else:
+                referee_set.add(referee)
+
+    if duplicates:
+        print(f"\033[91mThe following referees appear in multiple pairs: {', '.join(duplicates)}\033[0m")
+        raise ColleagueError
+    else:
+        print("\033[92mNo referee appears in multiple pairs.\033[0m")
+
+    return noDuplication
 
 
 def populateGamesInDay(games):
@@ -284,7 +322,7 @@ def populateGamesInDay(games):
 def findFinals(games):
     finals = []
     for index, row in games.iterrows():
-        if row['Runda'] == 'Final':
+        if row['Round'] == 'Final':
             finals.append(row['id'])
 
     return finals
@@ -294,7 +332,7 @@ def findGamesOnDayAndField(games):
     result = []
 
     for day in games:
-        groupedDf = day.groupby('Spelplan')['id'].apply(list).reset_index()
+        groupedDf = day.groupby('Field')['id'].apply(list).reset_index()
         thisList = groupedDf['id'].tolist()
         result.append(thisList)
 
@@ -348,7 +386,7 @@ def main():
         # Create a dictionary for each referee name
         referee_dict[referee_name] = {
             'Level': level_value,
-            'available': available_value
+            'Available': available_value
         }
     json_data = {
         'days': days,
@@ -360,29 +398,41 @@ def main():
         'unAllowedPairs': unAllowedPairs
     }
 
+    try:
+        os.makedirs('data')
+    except FileExistsError:
+        pass
+
     with open('data\data.json', 'w') as json_file:
         json.dump(json_data, json_file, indent=4)
 
     print(f'Number of unallowed pairs: {len(unAllowedPairs)}')
-    optimize(referee_dict, games_dict, unAllowedPairs, games, colleagues, gamesInDay, finalGames, gamesOnDayAndField)
+    try:
+        optimize(referee_dict, games_dict, unAllowedPairs, games, colleagues, gamesInDay, finalGames, gamesOnDayAndField)
 
-    print(games)
+        print(games)
 
-    games['date'] = pd.to_datetime(games['date']).dt.date
+        games['Date'] = pd.to_datetime(games['Date']).dt.date
 
-    uniqeDates = games['date'].unique()
+        uniqeDates = games['Date'].unique()
 
-    with pd.ExcelWriter('result.xlsx', engine='xlsxwriter') as writer:
-        for date in uniqeDates:
-            filtered_df = games[games['date'] == date]
-            filtered_df.to_excel(writer, sheet_name=str(date), index=False)
+        with pd.ExcelWriter('result.xlsx', engine='xlsxwriter') as writer:
+            for date in uniqeDates:
+                filtered_df = games[games['Date'] == date]
+                filtered_df.to_excel(writer, sheet_name=str(date), index=False)
+
+    except NoSoulutionFound:
+        print(f'\033[91mUnable to find a soulution.\033[0m')
 
 
 if __name__ == "__main__":
     tracemalloc.start()
 
-    main()
+    try:
+        main()
+    except ColleagueError:
+        print("\033[91mUnsolvable error in colleage check. Stopping program. Please confirm the colleages in the input data.\033[0m")
 
-    print(tracemalloc.get_traced_memory())
+    print(f'Memory usage (current, peak): {tracemalloc.get_traced_memory()}')
 
     tracemalloc.stop()
