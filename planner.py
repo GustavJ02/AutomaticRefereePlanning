@@ -3,6 +3,7 @@ from datetime import datetime
 import json
 import ast
 from docplex.mp.model import Model
+import tracemalloc
 
 
 def read_data():
@@ -92,8 +93,8 @@ def calculateAvrage(referee_dict, gamesInDay):
 
     for i, day in enumerate(gamesInDay):
         avalibleRefs = countAvalibleRefs(referee_dict, i)
-        average = len(day) / avalibleRefs
-        result.append(average)
+        average = 2 * len(day) / avalibleRefs
+        result.append(round(average))
 
     return result
 
@@ -106,6 +107,7 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
     # Model object
     # ----------------------------------------------------------------
     mod = Model(name='referee_assignment', log_output=True)
+    mod.parameters.mip.tolerances.mipgap = 0.29
 
     # ----------------------------------------------------------------
     # Model data
@@ -140,11 +142,12 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
     # ----------------------------------------------------------------
     above_avg = mod.continuous_var_matrix(referees, daysRange, lb=0, name='above_avg')
     below_avg = mod.continuous_var_matrix(referees, daysRange, lb=0, name='below_avg')
+    officiatesLastAndFirst = mod.binary_var_matrix(referees, daysRange, name='officiatesLastAndFirst')
 
     # ----------------------------------------------------------------
     # Objective
     # ----------------------------------------------------------------
-    mod.minimize(sum(above_avg[ref, t] + below_avg[ref, t] for ref in referees for t in daysRange))
+    mod.minimize(sum(above_avg[ref, t] + below_avg[ref, t] + 10 * officiatesLastAndFirst[ref, t] for ref in referees for t in daysRange))
 
     # ----------------------------------------------------------------
     # Constraints
@@ -186,6 +189,13 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
     for ref in referees:
         mod.add_constraint(sum(officiates[ref, game] for game in finalGames) <= 1)  # Max one final per referee
 
+    # Add penalty to goal function if referees officiate both first and last game in one day.
+    for t in daysRange:
+        for field in range(len(gamesOnDayAndField[t])):
+            for otherField in range(len(gamesOnDayAndField[t])):
+                for ref in referees:
+                    mod.add_constraint(officiates[ref, gamesOnDayAndField[t][field][0]] + officiates[ref, gamesOnDayAndField[t][otherField][-1]] <= 1 + officiatesLastAndFirst[ref, t])
+
     # Makes sure the referees officiates at least two consecutive games
     for t in daysRange:
         for field in range(len(notFinalGamesOnDayAndField[t])):
@@ -219,8 +229,36 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
                     else:
                         refs_sol[g] = [ref]
 
+        for ref in referees:
+            for t in daysRange:
+                above_avg_value = sol.get_value(above_avg[ref, t])
+                below_avg_value = sol.get_value(below_avg[ref, t])
+
+                if above_avg_value > 0:
+                    if above_avg_value <= 1:
+                        color_code = '\033[92m'  # Green
+                    elif above_avg_value <= 3:
+                        color_code = '\033[93m'  # Yellow
+                    else:
+                        color_code = '\033[91m'  # Red
+
+                    print(f'{color_code}{ref} is above average in day {t} by {above_avg_value}\033[0m')
+
+                elif below_avg_value > 0:
+                    if below_avg_value <= 1:
+                        color_code = '\033[92m'  # Green
+                    elif below_avg_value <= 3:
+                        color_code = '\033[93m'  # Yellow
+                    else:
+                        color_code = '\033[91m'  # Red
+
+                    print(f'{color_code}{ref} is below average in day {t} by {below_avg_value}\033[0m')
+
+                if sol.get_value(officiatesLastAndFirst[ref, t]) > 0.5:
+                    print(f'\033[91m{ref} is assigned both first and last game in day {t}\033[0m')
+
         print(f"Objective value: {mod.objective_value}")
-        # print(refs_sol)
+
         combine(refs_sol, result)
     else:
         print("No solution found")
@@ -341,4 +379,10 @@ def main():
 
 
 if __name__ == "__main__":
+    tracemalloc.start()
+
     main()
+
+    print(tracemalloc.get_traced_memory())
+
+    tracemalloc.stop()
