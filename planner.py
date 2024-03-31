@@ -341,6 +341,17 @@ def findGamesOnDayAndField(games):
     return result
 
 
+def sumGamesPerReferee(referees, games):
+    for index, row in referees.iterrows():
+        numberOfGames = 0
+        ref = row['Referee']
+        for index2, row2 in games.iterrows():
+            if ref == row2['Referee 1'] or ref == row2['Referee 2']:
+                numberOfGames += 1
+
+        referees.at[index, 'Number of games'] = numberOfGames
+
+
 def main():
     games, referees, groups = read_data()
 
@@ -414,11 +425,16 @@ def main():
 
         print(games)
 
+        sumGamesPerReferee(referees, games)
+
+        referees.drop(['Level', 'Available', 'Colleague'], axis=1, inplace=True)
+
         games['Date'] = pd.to_datetime(games['Date']).dt.date
 
         uniqeDates = games['Date'].unique()
 
         with pd.ExcelWriter('result.xlsx', engine='xlsxwriter') as writer:
+            referees.to_excel(writer, sheet_name='Overview', index=False)
             for date in uniqeDates:
                 filtered_df = games[games['Date'] == date]
                 filtered_df.to_excel(writer, sheet_name=str(date), index=False)
