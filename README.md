@@ -1,6 +1,6 @@
-#This project reads data from excel and stores that in pandas dataframes. Applies neccecary calculations to find lists/dictionaries/dataframes that will be used to formulate a MILP optimization problem and construct constraints for the optimization. The code then uses the IBM CPLEX solver to find the optimal soulution to the problem.
+# This project reads data from excel and stores that in pandas dataframes. Applies neccecary calculations to find lists/dictionaries/dataframes that will be used to formulate a MILP optimization problem and construct constraints for the optimization. The code then uses the IBM CPLEX solver to find the optimal soulution to the problem.
 
-#The rules/constraints for the planning are the following
+# The rules/constraints for the planning are the following
 
 ## Ensure that each game has the correct number of referees
 ## Ensure that each referee has the correct qualification for each level
@@ -12,5 +12,5 @@
 ## Ensure that referees are only assigned one final
 ## Makes sure the referees officiates at least two consecutive games
 
-#Also this constraint to formulate an effective objective function
+# Also this constraint to formulate an effective objective function
 ## Calculate deviation from avrage for objective and dont assign referees games if they are not avalible
