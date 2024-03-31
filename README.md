@@ -1,7 +1,7 @@
 # Description
 This project reads data from Excel and stores that in pandas dataframes. Applies necessary calculations to find lists/dictionaries/dataframes that will be used to formulate a MILP optimization problem and construct constraints for the optimization. The code then uses the IBM CPLEX solver to find the optimal solution to the problem.
 
-# Rules/constraints for planning
+## Rules/constraints for planning
 
 - Don't assign referees games if they are not available
 - Ensure that each game has the correct number of referees
@@ -14,5 +14,6 @@ This project reads data from Excel and stores that in pandas dataframes. Applies
 - Ensure that referees are only assigned one final
 - Makes sure the referees officiate at least two consecutive games
 
-Also, this constraint to formulate an effective objective function
+## Constraint to formulate an effective objective function
 - Calculate deviation from average for objective
+- Add penalty to objective if one referee is assigned both the first and last game in one day (effectively first/last two games due to other constraints)
