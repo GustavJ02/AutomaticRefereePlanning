@@ -132,6 +132,8 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
     games = list(games_dict.keys())
     daysRange = range(len(gamesInDay))
 
+    gamesNotPool = [x for x in games if games_dict[x]['reqLevel'] != 1]
+
     notFinalGamesOnDayAndField = []
 
     for t in daysRange:
@@ -192,8 +194,8 @@ def optimize(referee_dict, games_dict, unAllowedPairs, result, colleagues, games
             for ref in referees:
                 mod.add_constraint(sum(officiates[ref, game] for game in gamesInDay[t][index:index + 5]) <= 4)
 
-    # Ensure that referees officiates a game with their collegue if they have one
-    for g in games:
+    # Ensure that referees officiates a game that is not Poolspel with their collegue if they have one
+    for g in gamesNotPool:
         for ref1, ref2 in colleagues:
             mod.add_constraint(officiates[ref1, g] - officiates[ref2, g] == 0)
 
@@ -431,7 +433,7 @@ if __name__ == "__main__":
     try:
         main()
     except ColleagueError:
-        print("\033[91mUnsolvable error in colleage check. Stopping program. Please confirm the colleages in the input data.\033[0m")
+        print("\033[91mUnsolvable error in colleague check. Stopping program. Please confirm the colleages in the input data.\033[0m")
 
     print(f'Memory usage (current, peak): {tracemalloc.get_traced_memory()}')
 
