@@ -14,5 +14,6 @@ This project reads data from Excel and stores that in pandas dataframes. Applies
 - Ensure that referees are only assigned one final
 - Makes sure the referees officiate at least two consecutive games
 
-Also, this constraint to formulate an effective objective function
+Also, constraint to formulate an effective objective function
 - Calculate deviation from average for objective
+- Add penalty to objective if one referee is assigned both the first and last game in one day (effectively first/last two games due to other constraints)
